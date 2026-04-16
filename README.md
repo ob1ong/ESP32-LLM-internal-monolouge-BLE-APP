@@ -537,6 +537,4 @@ MIT License
 
 ---
 
-## Suggested repo description
-
-`AI smart glasses using an ESP32 camera and Android app for BLE setup, Wi-Fi image capture, GPT vision analysis, and real-time spoken internal monologue.`
+note: image is rotated 90 to the right and flipped left right for current hardware
