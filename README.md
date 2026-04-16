@@ -470,7 +470,6 @@ Limitations include:
 
 Possible next steps:
 
-* save Wi-Fi credentials in ESP32 flash using `Preferences`
 * auto-reconnect after wake or reboot
 * configurable capture interval in app
 * better app-side image transforms
@@ -504,18 +503,6 @@ Good areas for contribution:
 * prompt engineering
 * app UI polish
 * local image processing improvements
-
----
-
-## License
-
-Add your preferred license here.
-
-For example:
-
-```text
-MIT License
-```
 
 ---
 
