@@ -537,4 +537,4 @@ MIT License
 
 ---
 
-note: image is rotated 90 to the right and flipped left right for current hardware
+note: image in the app is rotated 90 to the right and flipped left right for current hardware 
