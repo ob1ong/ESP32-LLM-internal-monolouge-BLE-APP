@@ -1,4 +1,4 @@
-﻿package com.example.esp32aiglasses
+package com.example.esp32aiglasses
 
 import android.Manifest
 import android.content.Context
@@ -209,11 +209,11 @@ fun AppScreen() {
         IntegerSetting("Context memory (previous responses)", memoryCount, 0, 10, 1, !running) {
             memoryCount = it; prefs.edit().putInt("memory", it).apply()
         }
-        Text("Speech speed: ${String.format(Locale.US, "%.1f", speechSpeed)}Ã—")
+        Text("Speech speed: ${String.format(Locale.US, "%.1f", speechSpeed)}×")
         Slider(value = speechSpeed, onValueChange = {
             speechSpeed = it; prefs.edit().putFloat("speed", it).apply()
         }, valueRange = 0.5f..2f, steps = 14, enabled = !running)
-        Text("Speech pitch: ${String.format(Locale.US, "%.1f", speechPitch)}Ã—")
+        Text("Speech pitch: ${String.format(Locale.US, "%.1f", speechPitch)}×")
         Slider(value = speechPitch, onValueChange = {
             speechPitch = it; prefs.edit().putFloat("pitch", it).apply()
         }, valueRange = 0.5f..2f, steps = 14, enabled = !running)
