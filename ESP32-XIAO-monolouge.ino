@@ -11,8 +11,8 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-const char *ssid = "Necronominet";
-const char *password = "mzwItXWw9";
+const char *ssid = ";
+const char *password = "";
 
 void startCameraServer();
 void setupLedFlash();
