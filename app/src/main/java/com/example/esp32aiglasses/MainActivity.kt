@@ -3,15 +3,8 @@ package com.example.esp32aiglasses
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,22 +43,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 private val AppDarkColors = darkColorScheme(
@@ -130,15 +111,14 @@ class MainActivity : ComponentActivity() {
 fun AppScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    val bleManager = remember { BleManager(context) }
-    val openAiClient = remember { OpenAiClient() }
-    val ttsSpeaker = remember { QueueingTtsHelper(context) }
+    val bleManager = remember { MonologueService.ble(context.applicationContext) }
+    val voicePreview = remember { QueueingTtsHelper(context.applicationContext) }
     val scrollState = rememberScrollState()
 
     var apiKey by remember { mutableStateOf("") }
     var wifiSsid by remember { mutableStateOf("") }
     var wifiPassword by remember { mutableStateOf("") }
-    var captureUrl by remember { mutableStateOf("") }
+    var captureUrl by MonologueService.captureUrl
     val prefs = remember { context.getSharedPreferences("monologue_settings", Context.MODE_PRIVATE) }
     var prompt by remember { mutableStateOf(prefs.getString("prompt", "").orEmpty()) }
     var captureInterval by remember { mutableStateOf(prefs.getInt("interval", 1).coerceIn(1, 60)) }
@@ -152,23 +132,15 @@ fun AppScreen() {
     var voiceName by remember { mutableStateOf(prefs.getString("voice", "").orEmpty()) }
     var voices by remember { mutableStateOf(emptyList<String>()) }
     var voiceMenuOpen by remember { mutableStateOf(false) }
-    var sessionJob by remember { mutableStateOf<Job?>(null) }
     var status by remember { mutableStateOf("Not connected") }
-    var running by remember { mutableStateOf(false) }
-    var lastResponse by remember { mutableStateOf("") }
-    var currentSpokenText by remember { mutableStateOf("") }
+    val running by MonologueService.running
+    val lastResponse by MonologueService.lastResponse
+    val currentSpokenText by MonologueService.currentSpeech
 
+    val sessionStatus by MonologueService.status
     DisposableEffect(Unit) {
-        ttsSpeaker.setOnCurrentSpeechChanged { spoken ->
-            currentSpokenText = spoken
-        }
-
-        ttsSpeaker.setOnReady { voices = ttsSpeaker.availableVoiceNames() }
-        onDispose {
-            sessionJob?.cancel()
-            ttsSpeaker.shutdown()
-            bleManager.disconnect()
-        }
+        voicePreview.setOnReady { voices = voicePreview.availableVoiceNames() }
+        onDispose { voicePreview.shutdown() }
     }
 
     Column(
@@ -280,6 +252,7 @@ fun AppScreen() {
         )
 
         Text("Status: $status", color = Color.White)
+        Text("Session: $sessionStatus", color = Color.White)
 
         Button(
             onClick = {
@@ -297,6 +270,7 @@ fun AppScreen() {
                     }
                 }
             },
+            enabled = !running,
             modifier = Modifier.fillMaxWidth(),
             colors = whiteButtonColors()
         ) {
@@ -361,6 +335,7 @@ fun AppScreen() {
                     }
                 }
             },
+            enabled = !running,
             modifier = Modifier.fillMaxWidth(),
             colors = whiteButtonColors()
         ) {
@@ -372,8 +347,7 @@ fun AppScreen() {
                 scope.launch {
                     try {
                         bleManager.clearStatusMessages()
-                        sessionJob?.cancel()
-                        ttsSpeaker.stopSpeaking()
+                        MonologueService.stop(context)
                         bleManager.sendCommand("SLEEP")
                         status = "Sleep command sent"
                     } catch (e: Exception) {
@@ -389,78 +363,24 @@ fun AppScreen() {
 
         Button(
             onClick = {
-                if (running || sessionJob?.isActive == true) return@Button
-
+                if (running) return@Button
                 if (apiKey.isBlank()) {
                     status = "Enter API key first"
                     return@Button
                 }
-
                 if (captureUrl.isBlank()) {
                     status = "No capture URL yet"
                     return@Button
                 }
-
-                running = true
-                status = "Starting..."
-                lastResponse = ""
-
-                sessionJob = scope.launch {
-                    try {
-                        if (!ttsSpeaker.awaitReady()) {
-                            status = "TTS failed to initialize"
-                            return@launch
-                        }
-                        ttsSpeaker.configure(speechSpeed, speechPitch, voiceName)
-                        val history = ArrayDeque<String>()
-                        var previousScene: IntArray? = null
-                        while (isActive && running) {
-                            status = "Waiting for speech backlog..."
-                            ttsSpeaker.waitForSlot(maxAhead)
-                            ensureActive()
-                            status = "Fetching image..."
-                            val imageBytes = withContext(Dispatchers.IO) { fetchImage(captureUrl) }
-                            val processedImageBytes = withContext(Dispatchers.Default) {
-                                rotateRightAndFlipVerticalAxis(imageBytes)
-                            }
-                            if (onlyChanged || discardOutdated) {
-                                val scene = withContext(Dispatchers.Default) { sceneSignature(processedImageBytes) }
-                                val prior = previousScene
-                                val changed = prior == null || sceneDifference(prior, scene) >= 20.0
-                                if (onlyChanged && !changed) {
-                                    status = "Scene unchanged"
-                                    delay(captureInterval * 1000L)
-                                    continue
-                                }
-                                if (discardOutdated && prior != null && changed) {
-                                    ttsSpeaker.stopSpeaking()
-                                    history.clear()
-                                }
-                                previousScene = scene
-                            }
-                            status = "Analyzing image..."
-                            val instruction = buildAnalysisPrompt(prompt, responseWords, history.toList())
-                            val text = withContext(Dispatchers.IO) {
-                                openAiClient.analyzeImage(apiKey.trim(), instruction, processedImageBytes, responseWords)
-                            }
-                            ensureActive()
-                            lastResponse = text
-                            if (memoryCount > 0) {
-                                history.addLast(text)
-                                while (history.size > memoryCount) history.removeFirst()
-                            }
-                            status = "Speaking..."
-                            ttsSpeaker.speakQueued(text)
-                            delay(captureInterval * 1000L)
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        status = "Loop failed: ${e.message}"
-                    } finally {
-                        ttsSpeaker.stopSpeaking()
-                        running = false
-                    }
+                try {
+                    MonologueService.start(context, SessionConfig(
+                        apiKey.trim(), captureUrl, prompt, captureInterval,
+                        responseWords, maxAhead, speechSpeed, speechPitch,
+                        memoryCount, onlyChanged, discardOutdated, voiceName
+                    ))
+                    status = "Session requested"
+                } catch (e: Exception) {
+                    status = "Start failed: ${e.message}"
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -471,8 +391,7 @@ fun AppScreen() {
 
         Button(
             onClick = {
-                sessionJob?.cancel()
-                ttsSpeaker.stopSpeaking()
+                MonologueService.stop(context)
                 status = "Stopped"
             },
             modifier = Modifier.fillMaxWidth(),
@@ -483,11 +402,9 @@ fun AppScreen() {
 
         Button(
             onClick = {
-                sessionJob?.cancel()
-                ttsSpeaker.stopSpeaking()
+                MonologueService.stop(context)
                 bleManager.disconnect()
                 captureUrl = ""
-                currentSpokenText = ""
                 status = "Disconnected"
             },
             modifier = Modifier.fillMaxWidth(),
@@ -524,65 +441,6 @@ fun AppScreen() {
     }
 }
 
-private fun fetchImage(urlString: String): ByteArray {
-    val url = URL(urlString)
-    val connection = (url.openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 10000
-        readTimeout = 15000
-        doInput = true
-    }
-
-    try {
-        connection.connect()
-        if (connection.responseCode !in 200..299) {
-            throw Exception("HTTP ${connection.responseCode}")
-        }
-        connection.inputStream.use { input ->
-            val buffer = ByteArray(8192)
-            val output = ByteArrayOutputStream()
-            while (true) {
-                val count = input.read(buffer)
-                if (count == -1) break
-                output.write(buffer, 0, count)
-            }
-            return output.toByteArray()
-        }
-    } finally {
-        connection.disconnect()
-    }
-}
-
-private fun rotateRightAndFlipVerticalAxis(imageBytes: ByteArray): ByteArray {
-    val original = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-        ?: throw IllegalStateException("Failed to decode image")
-
-    val matrix = Matrix().apply {
-        postRotate(90f)
-        postScale(-1f, 1f)
-    }
-
-    val transformed = Bitmap.createBitmap(
-        original,
-        0,
-        0,
-        original.width,
-        original.height,
-        matrix,
-        true
-    )
-
-    val output = ByteArrayOutputStream()
-    transformed.compress(Bitmap.CompressFormat.JPEG, 95, output)
-
-    if (transformed != original) {
-        original.recycle()
-    }
-    transformed.recycle()
-
-    return output.toByteArray()
-}
-
 @Composable
 private fun IntegerSetting(label: String, value: Int, min: Int, max: Int, step: Int, enabled: Boolean, onChange: (Int) -> Unit) {
     Text("$label: $value")
@@ -595,125 +453,6 @@ private fun ToggleSetting(label: String, checked: Boolean, enabled: Boolean, onC
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text(label, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
-    }
-}
-
-private fun sceneSignature(bytes: ByteArray): IntArray {
-    val original = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: error("Invalid image")
-    val small = Bitmap.createScaledBitmap(original, 16, 16, true)
-    val pixels = IntArray(256)
-    small.getPixels(pixels, 0, 16, 0, 0, 16, 16)
-    if (small != original) small.recycle()
-    original.recycle()
-    return pixels.map { pixel ->
-        (android.graphics.Color.red(pixel) * 299 + android.graphics.Color.green(pixel) * 587 + android.graphics.Color.blue(pixel) * 114) / 1000
-    }.toIntArray()
-}
-
-private class QueueingTtsHelper(context: Context) {
-    private val ready = AtomicBoolean(false)
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private val tts: TextToSpeech
-    private var initialized = false
-    private var closed = false
-    private var defaultVoice: android.speech.tts.Voice? = null
-    private val utteranceTexts = ConcurrentHashMap<String, String>()
-    private var onCurrentSpeechChanged: ((String) -> Unit)? = null
-    private var onReady: (() -> Unit)? = null
-    private var currentId: String? = null
-
-    init {
-        tts = TextToSpeech(context) { status ->
-            // Post so the TTS field is assigned before handling the callback.
-            mainHandler.post { finishInit(status) }
-        }
-    }
-
-    private fun finishInit(status: Int) {
-        if (closed) return
-        ready.set(status == TextToSpeech.SUCCESS)
-        if (ready.get()) {
-            tts.language = Locale.getDefault()
-            defaultVoice = tts.voice
-            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) {
-                    mainHandler.post {
-                        if (utteranceId != null && utteranceTexts.containsKey(utteranceId)) {
-                            currentId = utteranceId
-                            onCurrentSpeechChanged?.invoke(utteranceTexts[utteranceId].orEmpty())
-                        }
-                    }
-                }
-                override fun onDone(utteranceId: String?) { finishSpeech(utteranceId) }
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) { finishSpeech(utteranceId) }
-                override fun onError(utteranceId: String?, errorCode: Int) { finishSpeech(utteranceId) }
-                override fun onStop(utteranceId: String?, interrupted: Boolean) { finishSpeech(utteranceId) }
-            })
-        }
-        initialized = true
-        if (ready.get()) onReady?.invoke()
-    }
-
-    private fun finishSpeech(id: String?) {
-        mainHandler.post {
-            if (id != null && utteranceTexts.remove(id) != null && currentId == id) {
-                currentId = null
-                onCurrentSpeechChanged?.invoke("")
-            }
-        }
-    }
-
-    fun setOnCurrentSpeechChanged(listener: (String) -> Unit) { onCurrentSpeechChanged = listener }
-    fun setOnReady(listener: () -> Unit) {
-        onReady = listener
-        if (ready.get()) listener()
-    }
-    fun availableVoiceNames(): List<String> = if (ready.get()) tts.voices.orEmpty().map { it.name }.sorted() else emptyList()
-
-    suspend fun awaitReady(): Boolean {
-        repeat(50) {
-            if (initialized) return ready.get()
-            delay(100L)
-        }
-        return ready.get()
-    }
-
-    fun configure(speed: Float, pitch: Float, voiceName: String) {
-        tts.setSpeechRate(speed)
-        tts.setPitch(pitch)
-        val selected = tts.voices.orEmpty().firstOrNull { it.name == voiceName } ?: defaultVoice
-        if (selected != null) tts.voice = selected
-    }
-
-    fun speakQueued(text: String) {
-        if (!ready.get() || closed) return
-        val id = UUID.randomUUID().toString()
-        utteranceTexts[id] = text
-        if (tts.speak(text, TextToSpeech.QUEUE_ADD, null, id) == TextToSpeech.ERROR) {
-            utteranceTexts.remove(id)
-            error("Text-to-speech rejected the response")
-        }
-    }
-
-    suspend fun waitForSlot(maxPendingAhead: Int) {
-        while (!hasResponseSlot(utteranceTexts.size, maxPendingAhead)) delay(100L)
-    }
-
-    fun stopSpeaking() {
-        utteranceTexts.clear()
-        currentId = null
-        if (!closed && ready.get()) tts.stop()
-        onCurrentSpeechChanged?.invoke("")
-    }
-
-    fun shutdown() {
-        stopSpeaking()
-        closed = true
-        ready.set(false)
-        tts.shutdown()
-        onReady = null
-        onCurrentSpeechChanged = null
     }
 }
 

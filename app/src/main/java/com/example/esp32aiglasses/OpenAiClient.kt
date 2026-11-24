@@ -11,6 +11,8 @@ import org.json.JSONObject
 class OpenAiClient {
     private val client = OkHttpClient()
 
+    fun cancelAll() { client.dispatcher.cancelAll() }
+
     fun analyzeImage(apiKey: String, prompt: String, imageBytes: ByteArray, responseWords: Int = 25): String {
         val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
 
