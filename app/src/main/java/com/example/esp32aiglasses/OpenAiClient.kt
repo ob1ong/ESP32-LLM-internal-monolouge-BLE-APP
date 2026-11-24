@@ -11,12 +11,12 @@ import org.json.JSONObject
 class OpenAiClient {
     private val client = OkHttpClient()
 
-    fun analyzeImage(apiKey: String, prompt: String, imageBytes: ByteArray): String {
+    fun analyzeImage(apiKey: String, prompt: String, imageBytes: ByteArray, responseWords: Int = 25): String {
         val base64Image = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
 
         val bodyJson = JSONObject().apply {
             put("model", "gpt-4.1-mini")
-            put("max_output_tokens", 80)
+            put("max_output_tokens", responseTokenLimit(responseWords))
             put(
                 "input",
                 JSONArray().put(

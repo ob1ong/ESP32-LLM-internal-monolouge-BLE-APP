@@ -209,29 +209,26 @@ The app begins the loop:
 
 ---
 
-## Default prompt
+## Customisation (app source v1.1)
 
-Current default prompt:
+The prompt is empty on a fresh install. If left blank, the app requests concise, neutral scene descriptions. Custom instructions are optional. Settings are saved locally; the API key and Wi-Fi credentials are not saved by these new settings.
 
-```text
-Respond as if you were my internal monologue in the first person. One or two concrete sentences only. Don't be repetitive between responses. Don't start with I.
-```
+| Setting | Default | Range |
+|---|---|---|
+| Capture interval (pause after each cycle) | 1 second | 1–60 seconds |
+| Response length (approximate target) | 25 words | 10–100 words |
+| Responses loaded in advance | 2 | 0–5 |
+| Context memory | 0 | 0–10 previous generated responses |
+| Speech speed and pitch | 1.0× | 0.5–2.0× |
+| Voice | System default | Voices available from Android TTS |
+| Only respond to visual changes | Off | On/off |
+| Interrupt outdated speech | Off | On/off |
 
-This is intended to produce short, practical, internal-monologue-style observations.
+Stop a session before adjusting these controls. The queue counts the current utterance plus buffered ones. At zero, the next capture waits until speech finishes; at two, up to two additional responses can be buffered. The API request is sequential, not parallel. Actual capture timing depends on network, processing and queue availability. The word target is not a guaranteed exact word count.
 
----
+Experimental change detection compares small grayscale thumbnails. It can be triggered by lighting or motion and can miss meaningful changes. It only checks when the queue allows a capture. Interrupting outdated speech stops both current and queued utterances. The app sends captured images and optional prompt/context to OpenAI; do not use it where recording is prohibited. It is not a safety or navigation aid.
 
-## TTS backlog control
-
-The app limits how far ahead it can generate new responses relative to speech playback.
-
-This prevents unnecessary API calls when the speech queue is already backed up.
-
-The current behavior is:
-
-* allow up to **2 messages ahead**
-* keep track of the **currently speaking** text
-* show both the current spoken text and the last response in the UI
+The existing repository APK is v1.0 until you build and replace it. See UPDATE.md for build and test steps.
 
 ---
 
@@ -471,7 +468,6 @@ Limitations include:
 Possible next steps:
 
 * auto-reconnect after wake or reboot
-* configurable capture interval in app
 * better app-side image transforms
 * visual debug preview in the app
 * battery / device status reporting over BLE
