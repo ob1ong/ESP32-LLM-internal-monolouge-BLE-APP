@@ -1,83 +1,152 @@
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include "esp_sleep.h"
+
+// Bluetooth additions
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <Preferences.h>
-#include "esp_sleep.h"
+
 #include "board_config.h"
 
-// Bluetooth UUIDs matching the Monologue Android app
+// Bluetooth UUIDs
 #define SERVICE_UUID "12345678-1234-1234-1234-1234567890ab"
 #define COMMAND_UUID "12345678-1234-1234-1234-1234567890ac"
 #define STATUS_UUID  "12345678-1234-1234-1234-1234567890ae"
+
+// No hardcoded WiFi credentials
+String ssid = "";
+String password = "";
+
+BLECharacteristic *statusChar = nullptr;
+
+bool serversStarted = false;
+bool wifiRequested = false;
+bool wifiConnecting = false;
+bool sleepRequested = false;
+bool phoneConnected = false;
+bool restartAdvertising = false;
+
+unsigned long wifiStartTime = 0;
 
 void startCameraServer();
 void setupLedFlash();
 
 WebServer sleepServer(82);
-Preferences prefs;
-
-BLECharacteristic *statusChar = nullptr;
-QueueHandle_t commands;
-
-struct Command {
-  char text[128];
-};
-
-String ssid;
-String password;
-
-bool cameraReady = false;
-bool serversStarted = false;
-bool connecting = false;
-bool saveOnSuccess = false;
-
-unsigned long connectStarted = 0;
 
 // ===========================
-// Bluetooth status messages
+// Bluetooth status
 // ===========================
 
-void publish(const String &message) {
+void sendStatus(String message) {
   Serial.println(message);
 
-  if (!statusChar) return;
+  if (statusChar != nullptr) {
+    statusChar->setValue(message.c_str());
 
-  statusChar->setValue(message.c_str());
+    if (phoneConnected) {
+      statusChar->notify();
+    }
+  }
+}
 
-  if (message.length() <= 20) {
-    statusChar->notify();
+void reportWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+
+    String ip = WiFi.localIP().toString();
+
+    sendStatus("WIFI_IP:" + ip);
+
+    delay(100);
+
+    sendStatus(
+      "WIFI_CONNECTED:http://" + ip + "/capture"
+    );
+
+  } else if (wifiConnecting) {
+
+    sendStatus("WIFI_CONNECTING");
+
+  } else if (ssid.isEmpty()) {
+
+    sendStatus("WIFI_NOT_SET");
+
+  } else {
+
+    sendStatus("WIFI_SAVED_NOT_CONNECTED");
   }
 }
 
 // ===========================
-// Bluetooth command handling
+// Bluetooth callbacks
 // ===========================
 
-class CommandCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic *characteristic) override {
-    auto raw = characteristic->getValue();
+class ServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *server) override {
+    phoneConnected = true;
+  }
 
-    if (raw.length() == 0 || raw.length() >= 128) {
-      return;
-    }
-
-    Command cmd = {};
-
-    memcpy(cmd.text, raw.c_str(), raw.length());
-
-    if (commands) {
-      xQueueSend(commands, &cmd, 0);
-    }
+  void onDisconnect(BLEServer *server) override {
+    phoneConnected = false;
+    restartAdvertising = true;
   }
 };
 
-class ServerCallbacks : public BLEServerCallbacks {
-  void onDisconnect(BLEServer *server) override {
-    server->startAdvertising();
+class CommandCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *characteristic) override {
+
+    String command = String(
+      characteristic->getValue().c_str()
+    );
+
+    if (command.startsWith("SET_WIFI:")) {
+
+      int separator = command.indexOf('|', 9);
+
+      if (separator < 0) {
+        sendStatus("WIFI_FAILED");
+        return;
+      }
+
+      if (wifiRequested || wifiConnecting) {
+        sendStatus("WIFI_CONNECTING");
+        return;
+      }
+
+      ssid = command.substring(9, separator);
+      password = command.substring(separator + 1);
+
+      if (ssid.isEmpty()) {
+        sendStatus("WIFI_FAILED");
+        return;
+      }
+
+      Serial.println("WiFi credentials received");
+
+      sendStatus("WIFI_SAVED");
+
+      wifiRequested = true;
+
+    } else if (command == "CONNECT_WIFI") {
+
+      if (!wifiConnecting) {
+        wifiRequested = true;
+      }
+
+    } else if (command == "WIFI_STATUS") {
+
+      reportWiFi();
+
+    } else if (command == "PING") {
+
+      sendStatus("PONG");
+
+    } else if (command == "SLEEP") {
+
+      sleepRequested = true;
+    }
   }
 };
 
@@ -85,23 +154,32 @@ class ServerCallbacks : public BLEServerCallbacks {
 // Initialise Bluetooth
 // ===========================
 
-void startBLE() {
-  Serial.println("Initialising Bluetooth...");
+void startBluetooth() {
+
+  Serial.println("Starting Bluetooth...");
 
   BLEDevice::init("ESP32-Glasses");
+
   BLEDevice::setMTU(185);
 
   BLEServer *server = BLEDevice::createServer();
+
   server->setCallbacks(new ServerCallbacks());
 
-  BLEService *service = server->createService(SERVICE_UUID);
-
-  BLECharacteristic *command = service->createCharacteristic(
-    COMMAND_UUID,
-    BLECharacteristic::PROPERTY_WRITE
+  BLEService *service = server->createService(
+    SERVICE_UUID
   );
 
-  command->setCallbacks(new CommandCallbacks());
+  BLECharacteristic *commandChar =
+    service->createCharacteristic(
+      COMMAND_UUID,
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_WRITE_NR
+    );
+
+  commandChar->setCallbacks(
+    new CommandCallbacks()
+  );
 
   statusChar = service->createCharacteristic(
     STATUS_UUID,
@@ -110,172 +188,166 @@ void startBLE() {
   );
 
   statusChar->addDescriptor(new BLE2902());
+
   statusChar->setValue("WIFI_NOT_SET");
 
   service->start();
 
-  BLEAdvertising *advertising = BLEDevice::getAdvertising();
+  BLEAdvertising *advertising =
+    BLEDevice::getAdvertising();
 
   advertising->addServiceUUID(SERVICE_UUID);
+
   advertising->setScanResponse(true);
 
   BLEDevice::startAdvertising();
 
-  Serial.println("Bluetooth initialised");
-  Serial.println("BLE advertising as ESP32-Glasses");
+  Serial.println(
+    "BLE advertising as ESP32-Glasses"
+  );
 }
 
 // ===========================
-// Deep sleep
+// Original deep sleep
 // ===========================
 
-void goToSleep() {
-  publish("SLEEPING");
+void enterSleep() {
 
-  delay(500);
+  Serial.println(
+    "Configuring wake on BOOT button (GPIO0)..."
+  );
 
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_0, 0);
 
-  Serial.println("Entering deep sleep");
+  Serial.println("Entering deep sleep now");
 
-  delay(200);
+  delay(100);
 
   esp_deep_sleep_start();
 }
 
 void handleSleep() {
+
   sleepServer.send(
     200,
     "text/plain",
     "Going to sleep until BOOT is pressed"
   );
 
-  goToSleep();
+  delay(200);
+
+  enterSleep();
 }
 
 // ===========================
-// Wi-Fi status
+// WiFi provisioning
 // ===========================
 
-void reportWiFi() {
-  if (WiFi.status() == WL_CONNECTED && serversStarted) {
-    String ip = WiFi.localIP().toString();
+void startWiFi() {
 
-    publish("WIFI_IP:" + ip);
-
-    publish(
-      "WIFI_CONNECTED:http://" + ip + "/capture"
-    );
-
-    Serial.print("Camera URL: http://");
-    Serial.print(ip);
-    Serial.println("/capture");
-
-  } else if (connecting) {
-    publish("WIFI_CONNECTING");
-
-  } else if (ssid.isEmpty()) {
-    publish("WIFI_NOT_SET");
-
-  } else {
-    publish("WIFI_SAVED_NOT_CONNECTED");
-  }
-}
-
-// ===========================
-// Connect to Wi-Fi
-// ===========================
-
-void connectWiFi(bool save) {
   if (ssid.isEmpty()) {
-    publish("WIFI_NOT_SET");
+
+    sendStatus("WIFI_NOT_SET");
+
     return;
   }
 
-  if (!cameraReady) {
-    publish("WIFI_FAILED");
-    Serial.println("Camera not ready");
-    return;
-  }
+  Serial.println("WiFi connecting");
 
-  Serial.println("Connecting to WiFi...");
+  WiFi.persistent(false);
 
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(false, false);
 
-  delay(100);
+  WiFi.begin(
+    ssid.c_str(),
+    password.c_str()
+  );
 
-  WiFi.begin(ssid.c_str(), password.c_str());
   WiFi.setSleep(false);
 
-  connecting = true;
-  saveOnSuccess = save;
-  connectStarted = millis();
+  wifiConnecting = true;
 
-  publish("WIFI_CONNECTING");
+  wifiStartTime = millis();
+
+  sendStatus("WIFI_CONNECTING");
 }
 
-// ===========================
-// Process Android app commands
-// ===========================
+void checkWiFi() {
 
-void processCommand(const String &cmd) {
+  if (!wifiConnecting) {
+    return;
+  }
 
-  if (cmd.startsWith("SET_WIFI:")) {
+  if (WiFi.status() == WL_CONNECTED) {
 
-    int split = cmd.indexOf('|', 9);
+    wifiConnecting = false;
 
-    if (split < 0) {
-      publish("WIFI_FAILED");
-      return;
+    Serial.println("WiFi connected");
+
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    if (!serversStarted) {
+
+      startCameraServer();
+
+      sleepServer.on(
+        "/sleep",
+        HTTP_GET,
+        handleSleep
+      );
+
+      sleepServer.begin();
+
+      serversStarted = true;
     }
 
-    String newSsid = cmd.substring(9, split);
-    String newPassword = cmd.substring(split + 1);
+    Serial.println("Camera Ready!");
 
-    if (
-      newSsid.isEmpty() ||
-      newSsid.length() > 32 ||
-      newPassword.length() > 64
-    ) {
-      publish("WIFI_FAILED");
-      return;
-    }
+    Serial.print("Base URL: http://");
+    Serial.println(WiFi.localIP());
 
-    ssid = newSsid;
-    password = newPassword;
+    Serial.print("Image URL: http://");
+    Serial.print(WiFi.localIP());
+    Serial.println("/capture");
 
-    Serial.println("WiFi credentials received");
+    Serial.print("Stream URL: http://");
+    Serial.print(WiFi.localIP());
+    Serial.println(":81/stream");
 
-    publish("WIFI_SAVED");
-
-    connectWiFi(true);
-
-  } else if (cmd == "CONNECT_WIFI") {
-
-    connectWiFi(false);
-
-  } else if (cmd == "WIFI_STATUS") {
+    Serial.print("Sleep URL: http://");
+    Serial.print(WiFi.localIP());
+    Serial.println(":82/sleep");
 
     reportWiFi();
 
-  } else if (cmd == "PING") {
+  } else if (
+    millis() - wifiStartTime >= 20000
+  ) {
 
-    publish("PONG");
+    wifiConnecting = false;
 
-  } else if (cmd == "SLEEP") {
+    WiFi.disconnect();
 
-    goToSleep();
+    sendStatus("WIFI_FAILED");
   }
 }
 
 // ===========================
-// Initialise camera
+// Original camera setup
 // ===========================
 
-bool initCamera() {
+void setup() {
 
-  Serial.println("Initialising camera...");
+  Serial.begin(115200);
+
+  delay(3000);
+
+  Serial.setDebugOutput(true);
+
+  Serial.println();
+
+  Serial.println("Booting...");
 
   camera_config_t config = {};
 
@@ -304,117 +376,112 @@ bool initCamera() {
 
   config.xclk_freq_hz = 20000000;
 
-  config.frame_size = FRAMESIZE_QVGA;
+  config.frame_size = FRAMESIZE_UXGA;
+
   config.pixel_format = PIXFORMAT_JPEG;
 
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+
   config.jpeg_quality = 12;
+
   config.fb_count = 1;
 
-  if (psramFound()) {
+  if (config.pixel_format == PIXFORMAT_JPEG) {
 
-    Serial.println("PSRAM detected");
+    if (psramFound()) {
 
-    config.fb_location = CAMERA_FB_IN_PSRAM;
+      config.jpeg_quality = 10;
+
+      config.fb_count = 2;
+
+      config.grab_mode = CAMERA_GRAB_LATEST;
+
+    } else {
+
+      config.frame_size = FRAMESIZE_SVGA;
+
+      config.fb_location = CAMERA_FB_IN_DRAM;
+    }
 
   } else {
 
-    Serial.println("PSRAM not detected");
+    config.frame_size = FRAMESIZE_240X240;
 
-    config.fb_location = CAMERA_FB_IN_DRAM;
+#if CONFIG_IDF_TARGET_ESP32S3
+    config.fb_count = 2;
+#endif
+
   }
+
+#if defined(CAMERA_MODEL_ESP_EYE)
+
+  pinMode(13, INPUT_PULLUP);
+  pinMode(14, INPUT_PULLUP);
+
+#endif
 
   esp_err_t err = esp_camera_init(&config);
 
   if (err != ESP_OK) {
 
     Serial.printf(
-      "Camera init failed: 0x%x\n",
+      "Camera init failed with error 0x%x\n",
       err
     );
-
-    return false;
-  }
-
-  sensor_t *s = esp_camera_sensor_get();
-
-  if (s && s->id.PID == OV3660_PID) {
-
-    s->set_vflip(s, 1);
-    s->set_brightness(s, 1);
-    s->set_saturation(s, -2);
-  }
-
-#if defined(LED_GPIO_NUM)
-  setupLedFlash();
-#endif
-
-  Serial.println("Camera init OK");
-
-  return true;
-}
-
-// ===========================
-// Main setup
-// ===========================
-
-void setup() {
-
-  Serial.begin(115200);
-
-  delay(3000);
-
-  Serial.println();
-  Serial.println("========================");
-  Serial.println("Booting Monologue...");
-  Serial.println("========================");
-
-  commands = xQueueCreate(8, sizeof(Command));
-
-  if (!commands) {
-
-    Serial.println("Command queue allocation failed");
 
     return;
   }
 
-  // Start Bluetooth before camera initialisation
-  startBLE();
+  sensor_t *s = esp_camera_sensor_get();
 
-  delay(500);
-
-  // Initialise camera
-  cameraReady = initCamera();
-
-  if (!cameraReady) {
-    Serial.println("Camera failed, Bluetooth remains active");
+  if (s == nullptr) {
+    Serial.println("Camera sensor unavailable");
+    return;
   }
 
-  // Load saved Wi-Fi credentials
-  if (prefs.begin("monologue", false)) {
+  if (s->id.PID == OV3660_PID) {
 
-    ssid = prefs.getString("ssid", "");
-    password = prefs.getString("password", "");
+    s->set_vflip(s, 1);
 
-  } else {
+    s->set_brightness(s, 1);
 
-    Serial.println("Preferences initialisation failed");
+    s->set_saturation(s, -2);
   }
 
-  if (!ssid.isEmpty() && cameraReady) {
+  if (config.pixel_format == PIXFORMAT_JPEG) {
 
-    Serial.println("Saved WiFi credentials found");
-
-    connectWiFi(false);
-
-  } else {
-
-    publish("WIFI_NOT_SET");
-
-    Serial.println("Waiting for Android app");
-    Serial.println("Connect to ESP32-Glasses");
+    s->set_framesize(s, FRAMESIZE_QVGA);
   }
+
+#if defined(CAMERA_MODEL_M5STACK_WIDE) || defined(CAMERA_MODEL_M5STACK_ESP32CAM)
+
+  s->set_vflip(s, 1);
+
+  s->set_hmirror(s, 1);
+
+#endif
+
+#if defined(CAMERA_MODEL_ESP32S3_EYE)
+
+  s->set_vflip(s, 1);
+
+#endif
+
+#if defined(LED_GPIO_NUM)
+
+  setupLedFlash();
+
+#endif
+
+  Serial.println("Camera init OK");
+
+  // Bluetooth replaces the original hardcoded WiFi setup
+
+  startBluetooth();
+
+  Serial.println("Waiting for WiFi credentials from app");
 }
 
 // ===========================
@@ -423,102 +490,36 @@ void setup() {
 
 void loop() {
 
-  Command cmd;
+  if (restartAdvertising) {
 
-  // Receive commands from Android
-  if (
-    commands &&
-    xQueueReceive(commands, &cmd, 0) == pdTRUE
-  ) {
-    processCommand(String(cmd.text));
+    restartAdvertising = false;
+
+    BLEDevice::startAdvertising();
   }
 
-  // Manage Wi-Fi connection
-  if (connecting) {
+  if (wifiRequested) {
 
-    if (WiFi.status() == WL_CONNECTED) {
+    wifiRequested = false;
 
-      connecting = false;
+    startWiFi();
+  }
 
-      Serial.println("WiFi connected");
+  checkWiFi();
 
-      // Save credentials only after successful connection
-      if (saveOnSuccess) {
+  if (sleepRequested) {
 
-        prefs.putString("ssid", ssid);
-        prefs.putString("password", password);
+    sleepRequested = false;
 
-        Serial.println("WiFi credentials saved");
-      }
+    sendStatus("SLEEPING");
 
-      // Start camera and sleep servers
-      if (!serversStarted) {
+    delay(500);
 
-        startCameraServer();
-
-        sleepServer.on(
-          "/sleep",
-          HTTP_GET,
-          handleSleep
-        );
-
-        sleepServer.begin();
-
-        serversStarted = true;
-
-        Serial.println("Camera server started");
-      }
-
-      reportWiFi();
-
-      Serial.print("IP address: ");
-      Serial.println(WiFi.localIP());
-
-      Serial.print("Capture URL: http://");
-      Serial.print(WiFi.localIP());
-      Serial.println("/capture");
-
-      Serial.print("Stream URL: http://");
-      Serial.print(WiFi.localIP());
-      Serial.println(":81/stream");
-
-      Serial.print("Sleep URL: http://");
-      Serial.print(WiFi.localIP());
-      Serial.println(":82/sleep");
-
-    } else if (
-      millis() - connectStarted >= 20000UL
-    ) {
-
-      connecting = false;
-
-      WiFi.disconnect(false, false);
-
-      publish("WIFI_FAILED");
-
-      Serial.println("WiFi connection timed out");
-      Serial.println("Waiting for new credentials");
-    }
+    enterSleep();
   }
 
   if (serversStarted) {
 
     sleepServer.handleClient();
-  }
-
-  // Periodic diagnostic message
-  static unsigned long lastHeartbeat = 0;
-
-  if (millis() - lastHeartbeat >= 10000UL) {
-
-    lastHeartbeat = millis();
-
-    Serial.printf(
-      "Monologue running | Camera: %s | WiFi: %s | Free heap: %u\n",
-      cameraReady ? "OK" : "FAILED",
-      WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED",
-      ESP.getFreeHeap()
-    );
   }
 
   delay(10);
