@@ -1,4 +1,4 @@
-# ESP32 AI Glasses
+﻿# ESP32 AI Glasses
 
 A wearable smart-glasses prototype built around an **ESP32 camera** and an **Android app**.
 
@@ -146,12 +146,12 @@ Your sketch folder should contain:
 
 ```text
 Monologue/
-├── Monologue.ino
-├── board_config.h
-├── camera_pins.h
-├── app_httpd.cpp
-├── camera_index.h
-└── partitions.csv (if supplied by the example)
+â”œâ”€â”€ Monologue.ino
+â”œâ”€â”€ board_config.h
+â”œâ”€â”€ camera_pins.h
+â”œâ”€â”€ app_httpd.cpp
+â”œâ”€â”€ camera_index.h
+â””â”€â”€ partitions.csv (if supplied by the example)
 ```
 
 Keep any additional files supplied with the CameraWebServer example.
@@ -493,11 +493,11 @@ Custom instructions are optional. Settings are saved locally; the API key and Wi
 
 | Setting | Default | Range |
 |---|---|---|
-| Capture interval (pause after each cycle) | 1 second | 1–60 seconds |
-| Response length (approximate target) | 25 words | 10–100 words |
-| Responses loaded in advance | 2 | 0–5 |
-| Context memory | 0 | 0–10 previous generated responses |
-| Speech speed and pitch | 1.0× | 0.5–2.0× |
+| Capture interval (pause after each cycle) | 1 second | 1â€“60 seconds |
+| Response length (approximate target) | 25 words | 10â€“100 words |
+| Responses loaded in advance | 2 | 0â€“5 |
+| Context memory | 0 | 0â€“10 previous generated responses |
+| Speech speed and pitch | 1.0Ã— | 0.5â€“2.0Ã— |
 | Voice | System default | Voices available from Android TTS |
 | Only respond to visual changes | Off | On/off |
 | Interrupt outdated speech | Off | On/off |
@@ -979,4 +979,5 @@ aimonolouge@proton.me
 
 Note: Images in the app are rotated 90 degrees to the right and flipped left to right for the current hardware configuration.
 
-**Monologue — An artificial perspective on the world around you.**
+**Monologue â€” An artificial perspective on the world around you.**
+

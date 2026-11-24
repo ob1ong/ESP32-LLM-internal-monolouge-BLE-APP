@@ -1,4 +1,4 @@
-package com.example.esp32aiglasses
+﻿package com.example.esp32aiglasses
 
 import android.Manifest
 import android.content.Context
@@ -121,7 +121,7 @@ fun AppScreen() {
     var captureUrl by MonologueService.captureUrl
     val prefs = remember { context.getSharedPreferences("monologue_settings", Context.MODE_PRIVATE) }
     var prompt by remember { mutableStateOf(prefs.getString("prompt", "").orEmpty()) }
-    var captureInterval by remember { mutableStateOf(prefs.getInt("interval", 1).coerceIn(1, 60)) }
+    var captureInterval by remember { mutableStateOf(prefs.getInt("interval", 1).coerceIn(0, 60)) }
     var responseWords by remember { mutableStateOf(prefs.getInt("words", 25).coerceIn(10, 100)) }
     var maxAhead by remember { mutableStateOf(prefs.getInt("ahead", 2).coerceIn(0, 5)) }
     var speechSpeed by remember { mutableStateOf(prefs.getFloat("speed", 1f).coerceIn(0.5f, 2f)) }
@@ -196,7 +196,7 @@ fun AppScreen() {
 
         Text("Customisation", style = MaterialTheme.typography.titleMedium)
         Text("Stop the session to change these settings.", style = MaterialTheme.typography.bodySmall)
-        IntegerSetting("Capture interval (seconds after each cycle)", captureInterval, 1, 60, 1, !running) {
+        IntegerSetting("Capture interval (seconds after each cycle)", captureInterval, 0, 60, 1, !running) {
             captureInterval = it; prefs.edit().putInt("interval", it).apply()
         }
         IntegerSetting("Response length (target words)", responseWords, 10, 100, 5, !running) {
@@ -209,11 +209,11 @@ fun AppScreen() {
         IntegerSetting("Context memory (previous responses)", memoryCount, 0, 10, 1, !running) {
             memoryCount = it; prefs.edit().putInt("memory", it).apply()
         }
-        Text("Speech speed: ${String.format(Locale.US, "%.1f", speechSpeed)}×")
+        Text("Speech speed: ${String.format(Locale.US, "%.1f", speechSpeed)}Ã—")
         Slider(value = speechSpeed, onValueChange = {
             speechSpeed = it; prefs.edit().putFloat("speed", it).apply()
         }, valueRange = 0.5f..2f, steps = 14, enabled = !running)
-        Text("Speech pitch: ${String.format(Locale.US, "%.1f", speechPitch)}×")
+        Text("Speech pitch: ${String.format(Locale.US, "%.1f", speechPitch)}Ã—")
         Slider(value = speechPitch, onValueChange = {
             speechPitch = it; prefs.edit().putFloat("pitch", it).apply()
         }, valueRange = 0.5f..2f, steps = 14, enabled = !running)
