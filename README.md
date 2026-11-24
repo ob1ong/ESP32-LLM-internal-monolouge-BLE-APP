@@ -981,3 +981,4 @@ Note: Images in the app are rotated 90 degrees to the right and flipped left to 
 
 **Monologue â€” An artificial perspective on the world around you.**
 
+
