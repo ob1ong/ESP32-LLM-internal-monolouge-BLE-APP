@@ -1,4 +1,4 @@
-﻿# ESP32 AI Glasses
+# ESP32 AI Glasses
 
 A wearable smart-glasses prototype built around an **ESP32 camera** and an **Android app**.
 
@@ -98,208 +98,57 @@ The firmware assumes the XIAO ESP32S3 Sense camera pin layout used in the projec
 
 ## Flashing the ESP32
 
-### 1. Install Arduino IDE
+### 1. Install Arduino IDE and ESP32 board support
 
-Download Arduino IDE from:
+Install Arduino IDE 2.x and the **esp32 by Espressif Systems** board package using Boards Manager. The camera support files are derived from the ESP32 CameraWebServer example; use a compatible ESP32 Arduino 3.x core. The exact core version has not yet been validated by a clean build.
 
-https://www.arduino.cc/en/software
+### 2. Open the complete firmware sketch
 
-Arduino IDE 2.x is recommended.
-
-### 2. Install the ESP32 board package
-
-Open Arduino IDE and navigate to:
-
-File > Preferences
-
-Add the following URL to Additional Boards Manager URLs:
+Open `ESP32-XIAO-monolouge/ESP32-XIAO-monolouge.ino` directly from the cloned repository. Keep the following files together:
 
 ```text
-https://espressif.github.io/arduino-esp32/package_esp32_index.json
+ESP32-XIAO-monolouge/
+├── ESP32-XIAO-monolouge.ino
+├── app_httpd.cpp
+├── board_config.h
+├── camera_index.h
+├── camera_pins.h
+├── partitions.csv
+└── ci.yml
 ```
 
-Open Boards Manager, search for `esp32`, and install the package by Espressif Systems.
+The CameraWebServer support files are included, so you do not need to create a separate example sketch. Do not replace the Monologue `.ino` with the stock CameraWebServer example: the Monologue sketch contains BLE provisioning and sleep control. `ci.yml` is reference test metadata, not a GitHub Actions workflow.
 
-Use a version that includes the CameraWebServer example with `board_config.h`.
+### 3. Configure the board
 
-### 3. Prepare the CameraWebServer sketch
-
-IMPORTANT: The Monologue firmware depends on supporting files from the Arduino ESP32 CameraWebServer example.
-
-Downloading the `.ino` file alone is not sufficient.
-
-1. Open Arduino IDE.
-2. Navigate to:
-
-   File > Examples > ESP32 > Camera > CameraWebServer
-
-3. Select File > Save As.
-4. Save the sketch as `Monologue`.
-5. Download `ESP32-XIAO-monolouge.ino` from this repository.
-6. Copy the entire contents of the downloaded firmware.
-7. Replace the contents of the main `Monologue.ino` tab with the downloaded code.
-8. Save the sketch.
-
-Do not delete the other tabs or supporting files.
-
-Your sketch folder should contain:
-
-```text
-Monologue/
-â”œâ”€â”€ Monologue.ino
-â”œâ”€â”€ board_config.h
-â”œâ”€â”€ camera_pins.h
-â”œâ”€â”€ app_httpd.cpp
-â”œâ”€â”€ camera_index.h
-â””â”€â”€ partitions.csv (if supplied by the example)
-```
-
-Keep any additional files supplied with the CameraWebServer example.
-
-These files provide the camera pin definitions, camera configuration and HTTP server required by Monologue.
-
-### 4. Configure the camera
-
-Open the `board_config.h` tab.
-
-Uncomment the following line:
-
-```cpp
-#define CAMERA_MODEL_XIAO_ESP32S3
-```
-
-Comment out all other camera model definitions.
-
-Only one camera model should be enabled.
-
-Do not enter your Wi-Fi credentials into the firmware. The Android app sends them over Bluetooth.
-
-### 5. Select the correct board
-
-Navigate to:
-
-Tools > Board > esp32 > XIAO_ESP32S3
-
-The XIAO ESP32S3 Sense uses the same board selection as the standard XIAO ESP32S3.
-
-### 6. Configure Arduino board settings
-
-Use the following recommended settings:
+Select the XIAO ESP32S3 board where available. Alternatively, the original camera project used these ESP32S3 Dev Module settings as a starting point:
 
 | Setting | Value |
-|---|---|
-| Board | XIAO_ESP32S3 |
+| --- | --- |
 | USB CDC On Boot | Enabled |
-| USB Mode (if available) | Hardware CDC and JTAG |
-| PSRAM | OPI PSRAM |
+| USB Mode | Hardware CDC and JTAG |
+| CPU Frequency | 240 MHz |
+| Flash Mode | QIO 80 MHz |
 | Flash Size | 8 MB |
-| Partition Scheme | Huge APP (3MB No OTA/1MB SPIFFS), if available |
-| Upload Speed | 115200 |
-| Erase All Flash Before Sketch Upload | Disabled |
-| Port | Current ESP32 COM port |
+| PSRAM | OPI PSRAM |
+| Upload Speed | 921600 (reduce if upload fails) |
+| Partition Scheme | Custom sketch partition table if supported; verify the build uses `partitions.csv` |
 
-Some options may differ depending on the ESP32 board package version.
+The supplied `board_config.h` selects `CAMERA_MODEL_XIAO_ESP32S3`. Leave Wi-Fi credentials blank in the sketch; the Android app provisions them over BLE.
 
-OPI PSRAM enables the additional 8 MB of memory available on the XIAO ESP32S3 Sense. This memory is particularly useful for storing camera frame buffers.
+### 4. Verify and upload
 
-### 7. Find the ESP32 COM port
+Connect the board using a USB data cable, select its serial port, click **Verify**, then **Upload**. If upload fails, enter the board's bootloader using BOOT and RESET as required. Open Serial Monitor at 115200 baud after uploading.
 
-Connect the ESP32 using a USB-C data cable.
+### 5. Connect the Android app
 
-On Windows, open Device Manager and expand:
+Connect to `ESP32-Glasses` over BLE and send Wi-Fi credentials from the app. The phone and ESP32 must be able to reach each other over the local network. After Wi-Fi connects, test the reported `/capture` URL in a browser. The camera server also provides a web interface and a stream on port 81; the app uses individual JPEG captures, not the live stream.
 
-```text
-Ports (COM & LPT)
-```
+### 6. Sleep and wake
 
-Alternatively, open PowerShell and run:
+Use **Sleep Glasses** to send the BLE sleep command. The firmware also exposes `/sleep` on port 82. Deep sleep stops normal camera, Wi-Fi and BLE operation. Press the physical **BOOT** button (GPIO0) to wake the ESP32; reconnect in the app and provision Wi-Fi again because credentials are held in RAM. Stopping the app's capture loop alone does not put the board into deep sleep.
 
-```powershell
-[System.IO.Ports.SerialPort]::GetPortNames()
-```
-
-For more detailed information:
-
-```powershell
-Get-PnpDevice -Class Ports -PresentOnly
-```
-
-Unplug and reconnect the ESP32 to identify which COM port belongs to it.
-
-Select that port in Arduino IDE:
-
-Tools > Port
-
-The COM port may change after uploading, restarting or entering download mode.
-
-### 8. Compile and upload
-
-Press the Verify button in Arduino IDE to compile the firmware.
-
-If compilation succeeds:
-
-1. Close Serial Monitor.
-2. Confirm the correct COM port is selected.
-3. Press Upload.
-
-A successful upload should end with something similar to:
-
-```text
-Writing... 100%
-Hash of data verified.
-Hard resetting via RTS pin...
-```
-
-### 9. Enter BOOT mode manually if required
-
-If Arduino IDE cannot connect to the ESP32:
-
-1. Hold down the BOOT button.
-2. While holding BOOT, press and release RESET.
-3. Release BOOT.
-4. Check which COM port appears.
-5. Select the correct port.
-6. Upload the firmware.
-
-Alternatively:
-
-1. Disconnect the USB cable.
-2. Hold down BOOT.
-3. Reconnect the USB cable.
-4. Release BOOT.
-
-Do not press RESET again before uploading, as this exits download mode.
-
-### 10. Confirm boot output
-
-After uploading, open Serial Monitor at:
-
-```text
-115200 baud
-```
-
-If the COM port has changed, select the new port.
-
-Press RESET once.
-
-The firmware should initialise Bluetooth and the camera.
-
-Expected output may include:
-
-```text
-Booting Monologue...
-Initialising Bluetooth...
-Bluetooth initialised
-BLE advertising as ESP32-Glasses
-Initialising camera...
-PSRAM detected
-Camera init OK
-Waiting for Android app
-```
-
-The ESP32 should advertise over Bluetooth even before Wi-Fi credentials have been configured.
-
-Actual messages may vary depending on the firmware version.
+Use a trusted private network: the local camera HTTP interface is not encrypted or authenticated.
 
 ---
 
