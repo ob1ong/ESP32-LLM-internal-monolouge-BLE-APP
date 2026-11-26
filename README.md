@@ -1,4 +1,4 @@
-# ESP32 AI Glasses
+# Monologue
 
 A wearable smart-glasses prototype built around an **ESP32 camera** and an **Android app**.
 
