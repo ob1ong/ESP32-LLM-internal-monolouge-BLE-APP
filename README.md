@@ -375,6 +375,8 @@ The repository APK can be rebuilt from the Android source. See UPDATE.md for bui
 
 ## Image preprocessing in the app
 
+Default settings (90 degrees rotation and mirroring enabled) are intended for the standard MONOLOGUE hardware setup. Adjust as needed for alternative camera mounting orientations.
+
 Camera image rotation and horizontal mirroring are independently configurable under Customisation.
 
 * Rotation: 0, 90, 180 or 270 degrees clockwise.

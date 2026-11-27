@@ -249,6 +249,10 @@ fun AppScreen() {
             imageMirror = it
             prefs.edit().putBoolean("image_mirror", it).apply()
         }
+        Text(
+            "Default settings (90 degrees rotation and mirroring enabled) are intended for the standard MONOLOGUE hardware setup. Adjust as needed for alternative camera mounting orientations.",
+            style = MaterialTheme.typography.bodySmall
+        )
         ToggleSetting("Only respond to visual changes", onlyChanged, !running) {
             onlyChanged = it; prefs.edit().putBoolean("only_changed", it).apply()
         }
