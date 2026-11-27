@@ -132,6 +132,9 @@ fun AppScreen() {
     var voiceName by remember { mutableStateOf(prefs.getString("voice", "").orEmpty()) }
     var voices by remember { mutableStateOf(emptyList<String>()) }
     var voiceMenuOpen by remember { mutableStateOf(false) }
+    var rotationMenuOpen by remember { mutableStateOf(false) }
+    var imageRotation by remember { mutableStateOf(prefs.getInt("image_rotation", 90)) }
+    var imageMirror by remember { mutableStateOf(prefs.getBoolean("image_mirror", false)) }
     var status by remember { mutableStateOf("Not connected") }
     val running by MonologueService.running
     val lastResponse by MonologueService.lastResponse
@@ -227,6 +230,25 @@ fun AppScreen() {
                 })
             }
         }
+        Button(onClick = { rotationMenuOpen = true }, enabled = !running, modifier = Modifier.fillMaxWidth(), colors = whiteButtonColors()) {
+            Text("Image rotation: $imageRotation degrees")
+        }
+        DropdownMenu(expanded = rotationMenuOpen, onDismissRequest = { rotationMenuOpen = false }) {
+            listOf(0, 90, 180, 270).forEach { angle ->
+                DropdownMenuItem(
+                    text = { Text("$angle degrees") },
+                    onClick = {
+                        imageRotation = angle
+                        prefs.edit().putInt("image_rotation", angle).apply()
+                        rotationMenuOpen = false
+                    }
+                )
+            }
+        }
+        ToggleSetting("Mirror image horizontally", imageMirror, !running) {
+            imageMirror = it
+            prefs.edit().putBoolean("image_mirror", it).apply()
+        }
         ToggleSetting("Only respond to visual changes", onlyChanged, !running) {
             onlyChanged = it; prefs.edit().putBoolean("only_changed", it).apply()
         }
@@ -237,7 +259,7 @@ fun AppScreen() {
         Button(onClick = {
             captureInterval = 1; responseWords = 25; maxAhead = 2; memoryCount = 0
             speechSpeed = 1f; speechPitch = 1f; voiceName = ""; prompt = ""
-            onlyChanged = false; discardOutdated = false
+            onlyChanged = false; discardOutdated = false; imageRotation = 90; imageMirror = false
             prefs.edit().clear().apply()
         }, enabled = !running, modifier = Modifier.fillMaxWidth(), colors = whiteButtonColors()) { Text("Reset customisation") }
 
@@ -376,7 +398,7 @@ fun AppScreen() {
                     MonologueService.start(context, SessionConfig(
                         apiKey.trim(), captureUrl, prompt, captureInterval,
                         responseWords, maxAhead, speechSpeed, speechPitch,
-                        memoryCount, onlyChanged, discardOutdated, voiceName
+                        memoryCount, onlyChanged, discardOutdated, voiceName, imageRotation, imageMirror
                     ))
                     status = "Session requested"
                 } catch (e: Exception) {

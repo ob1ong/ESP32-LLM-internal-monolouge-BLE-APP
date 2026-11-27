@@ -350,6 +350,8 @@ Custom instructions are optional. Settings are saved locally; the API key and Wi
 | Voice | System default | Voices available from Android TTS |
 | Only respond to visual changes | Off | On/off |
 | Interrupt outdated speech | Off | On/off |
+| Image rotation | 90 degrees clockwise | 0, 90, 180, 270 degrees |
+| Horizontal image mirroring | Off | On/off |
 
 Stop a session before adjusting these controls.
 
@@ -367,23 +369,29 @@ The app sends captured images and optional prompt/context to OpenAI; do not use 
 
 It is not a safety or navigation aid.
 
-The existing repository APK is v1.0 until you build and replace it. See UPDATE.md for build and test steps.
+The repository APK can be rebuilt from the Android source. See UPDATE.md for build and test steps.
 
 ---
 
 ## Image preprocessing in the app
 
-Depending on the current app version, the image can be transformed before being sent to the model.
+Camera image rotation and horizontal mirroring are independently configurable under Customisation.
 
-Examples of transformations used during development:
+* Rotation: 0, 90, 180 or 270 degrees clockwise.
+* Default rotation: 90 degrees clockwise.
+* Horizontal mirroring: independently enabled or disabled.
+* Default mirroring: off.
 
-* Rotate 90 degrees right
-* Mirror across vertical axis
-* No transform
+Rotation is applied before mirroring. Both transformations are applied on the phone before the image is sent to OpenAI.
 
-These transformations happen on the phone to reduce the processing workload on the ESP32.
+Settings persist between app sessions. Reset customisation restores the default orientation.
+
+Stop the session before changing camera orientation settings.
+
+No ESP32 firmware modifications are required.
 
 ---
+
 
 ## ESP32 firmware guide
 

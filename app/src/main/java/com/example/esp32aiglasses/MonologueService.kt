@@ -33,7 +33,7 @@ internal data class SessionConfig(
     val apiKey: String, val captureUrl: String, val prompt: String,
     val captureInterval: Int, val responseWords: Int, val maxAhead: Int,
     val speechSpeed: Float, val speechPitch: Float, val memoryCount: Int,
-    val onlyChanged: Boolean, val discardOutdated: Boolean, val voiceName: String
+    val onlyChanged: Boolean, val discardOutdated: Boolean, val voiceName: String, val imageRotation: Int = 90, val imageMirror: Boolean = false
 )
 
 class MonologueService : Service() {
@@ -161,7 +161,7 @@ class MonologueService : Service() {
                 currentCoroutineContext().ensureActive()
                 status.value = "Fetching image..."
                 val imageBytes = withContext(Dispatchers.IO) { fetchImage(c.captureUrl) }
-                val processed = withContext(Dispatchers.Default) { rotateRightAndFlipVerticalAxis(imageBytes) }
+                val processed = withContext(Dispatchers.Default) { transformCameraImage(imageBytes, c.imageRotation, c.imageMirror) }
                 if (c.onlyChanged || c.discardOutdated) {
                     val scene = withContext(Dispatchers.Default) { sceneSignature(processed) }
                     val prior = previousScene
@@ -246,13 +246,13 @@ private fun fetchImage(urlString: String): ByteArray {
     }
 }
 
-private fun rotateRightAndFlipVerticalAxis(imageBytes: ByteArray): ByteArray {
+private fun transformCameraImage(imageBytes: ByteArray, rotation: Int, mirror: Boolean): ByteArray {
     val original = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
         ?: throw IllegalStateException("Failed to decode image")
 
     val matrix = Matrix().apply {
-        postRotate(90f)
-        postScale(-1f, 1f)
+        postRotate(rotation.toFloat())
+        if (mirror) postScale(-1f, 1f)
     }
 
     val transformed = Bitmap.createBitmap(
