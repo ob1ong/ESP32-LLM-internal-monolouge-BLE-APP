@@ -351,7 +351,7 @@ Custom instructions are optional. Settings are saved locally; the API key and Wi
 | Only respond to visual changes | Off | On/off |
 | Interrupt outdated speech | Off | On/off |
 | Image rotation | 90 degrees clockwise | 0, 90, 180, 270 degrees |
-| Horizontal image mirroring | Off | On/off |
+| Horizontal image mirroring | On | On/off |
 
 Stop a session before adjusting these controls.
 
@@ -382,7 +382,7 @@ Camera image rotation and horizontal mirroring are independently configurable un
 * Rotation: 0, 90, 180 or 270 degrees clockwise.
 * Default rotation: 90 degrees clockwise.
 * Horizontal mirroring: independently enabled or disabled.
-* Default mirroring: off.
+* Default mirroring: on.
 
 Rotation is applied before mirroring. Both transformations are applied on the phone before the image is sent to OpenAI.
 

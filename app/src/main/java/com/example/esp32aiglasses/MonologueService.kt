@@ -33,7 +33,7 @@ internal data class SessionConfig(
     val apiKey: String, val captureUrl: String, val prompt: String,
     val captureInterval: Int, val responseWords: Int, val maxAhead: Int,
     val speechSpeed: Float, val speechPitch: Float, val memoryCount: Int,
-    val onlyChanged: Boolean, val discardOutdated: Boolean, val voiceName: String, val imageRotation: Int = 90, val imageMirror: Boolean = false
+    val onlyChanged: Boolean, val discardOutdated: Boolean, val voiceName: String, val imageRotation: Int = 90, val imageMirror: Boolean = true
 )
 
 class MonologueService : Service() {

@@ -134,7 +134,7 @@ fun AppScreen() {
     var voiceMenuOpen by remember { mutableStateOf(false) }
     var rotationMenuOpen by remember { mutableStateOf(false) }
     var imageRotation by remember { mutableStateOf(prefs.getInt("image_rotation", 90)) }
-    var imageMirror by remember { mutableStateOf(prefs.getBoolean("image_mirror", false)) }
+    var imageMirror by remember { mutableStateOf(prefs.getBoolean("image_mirror", true)) }
     var status by remember { mutableStateOf("Not connected") }
     val running by MonologueService.running
     val lastResponse by MonologueService.lastResponse
@@ -263,7 +263,7 @@ fun AppScreen() {
         Button(onClick = {
             captureInterval = 1; responseWords = 25; maxAhead = 2; memoryCount = 0
             speechSpeed = 1f; speechPitch = 1f; voiceName = ""; prompt = ""
-            onlyChanged = false; discardOutdated = false; imageRotation = 90; imageMirror = false
+            onlyChanged = false; discardOutdated = false; imageRotation = 90; imageMirror = true
             prefs.edit().clear().apply()
         }, enabled = !running, modifier = Modifier.fillMaxWidth(), colors = whiteButtonColors()) { Text("Reset customisation") }
 
